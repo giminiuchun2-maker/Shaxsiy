@@ -1,0 +1,97 @@
+name: helper
+# @manhwaatomic_bot IKKINCHI GITHUB YORDAMCHISI: xabar qabul QILMAYDI - faqat ish hovuzidan bob olib tarjima qiladi.
+# bot.yml har ishga tushganda yoqadi; MAX_LIFE dan keyin toza chiqib, o'rniga yangisini chaqiradi.
+# To'xtatish: Actions'da shu ishni Cancel qilish.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: write
+concurrency:
+  group: helper
+  cancel-in-progress: false
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        id: py
+        with:
+          python-version: "3.12"
+      - name: Kutubxonalar (keshdan)
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-${{ steps.py.outputs.python-version }}-${{ hashFiles('requirements.txt') }}-v2
+      - name: O'rnatish
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+          BOT_TOKEN=x OWNER_ID=1 .venv/bin/python -c "import fast_ocr; fast_ocr.warm_up()"
+      - name: Shrift (Digital Strip, Blambot - repoga qo'yilmaydi, litsenziya)
+        continue-on-error: true
+        run: |
+          curl -fsSL -o /tmp/ds.zip "https://dl.dafont.com/dl/?f=digital_strip"
+          unzip -oj /tmp/ds.zip digistrip.ttf -d assets/fonts
+      - name: LaMa modeli (keshdan)
+        id: lama
+        uses: actions/cache@v4
+        with:
+          path: assets/models
+          key: lama-fp32-v1
+      - name: LaMa modelini yuklash
+        if: steps.lama.outputs.cache-hit != 'true'
+        continue-on-error: true
+        run: |
+          mkdir -p assets/models
+          curl -fsSL -o assets/models/lama_fp32.onnx "https://huggingface.co/Carve/LaMa-ONNX/resolve/main/lama_fp32.onnx"
+      - name: Bot
+        env:
+          HELPER_ONLY: "1"
+          POOL_NAME: helper2
+          POOL_POLL_EVERY: "20"
+          MAX_LIFE: "16200"
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          OWNER_ID: ${{ secrets.OWNER_ID }}
+          GATE_KEY: ${{ secrets.GATE_KEY }}
+          GATE_URL: https://manhwa-gate-atomic.compass-crm.workers.dev
+          ADMINS_URL: https://manhwa-gate-atomic.compass-crm.workers.dev/admins
+          OCR_ENGINE: fast
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODELS: "gemini-3.5-flash:low,gemini-3.8-flash:low,gemini-3.7-flash:low,gemini-3.6-flash:low,gemini-3-flash-preview:low,gemini-3.5-flash-lite:low,gemini-3.1-flash-lite:low,gemini-3.1-flash-lite-preview:low,gemma-4-31b-it"
+          RENDER_V2: "1"
+          FONT_STYLES: "1"
+          # buyurtma dizayni (shop.py) - PDF/ZIP bob ish hovuziga tushishi uchun SHART
+          SHOP_UI: "1"
+          CHAPTER_BATCH: "1"
+          GEMINI_CHUNK: "40"
+          MAX_PDF_PAGES: "300"
+          MAX_BIG_MB: "1500"
+          TRIAL_MAX_MB: "2000"
+          TG_API_ID: ${{ secrets.TG_API_ID }}
+          TG_API_HASH: ${{ secrets.TG_API_HASH }}
+          BOT_SLOT: "1"
+          IDLE_EXIT: "999999"
+          PARALLEL_JOBS: "2"
+          COVER_IMAGE: "assets/cover.jpg"
+          CLEAN_STATUS: "1"
+          KEY_OFFSET: "2"
+          POOL_SLOTS: "2"
+          PAGE_OCR_WORKERS: "2"
+          DRAW_PAGES: "4"
+        run: |
+          if ! .venv/bin/python -V; then
+            echo "Kesh buzilgan - qayta o'rnatiladi"
+            rm -rf .venv && python -m venv .venv && .venv/bin/pip install -q -r requirements.txt
+          fi
+          .venv/bin/python runner.py
+      - name: O'rniga yangi yordamchi (faqat toza chiqqanda)
+        if: success()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run helper.yml -R "${{ github.repository }}" --ref "${{ github.ref_name }}"
